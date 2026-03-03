@@ -334,7 +334,7 @@ function renderSystemCron(jobs: SystemCronJob[], stats: { total: number }, bw: n
   const nameW = 24, schedW = 24, nextW = 12, lastW = 8;
   const lines: string[] = [];
 
-  lines.push(' ' + bold('  System Cron', 'blue') + dim(' (') + bold(String(stats.total), 'blue') + dim(')'));
+  lines.push(' ' + bold('  System Cron', 'green') + dim(' (') + bold(String(stats.total), 'green') + dim(')'));
   lines.push(' ');
 
   const hdr = '  ' + fit('Name', nameW) + ' ' + fit('Schedule', schedW) + fit('Next', nextW) + fit('Last', lastW);
