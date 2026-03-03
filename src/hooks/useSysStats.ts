@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
 import { execSync } from 'child_process';
 import * as os from 'os';
-import { POLL_STATS } from '../utils/config.js';
 
 export interface GpuInfo {
   percent: number;
@@ -24,12 +22,18 @@ export interface DockerInfo {
   available: boolean;
 }
 
+export interface SystemdService {
+  name: string;
+  status: string;
+}
+
 export interface SysStats {
   cpu: { percent: number; cores: number };
   mem: { usedGB: number; totalGB: number; percent: number };
   disk: { usedGB: number; totalGB: number; percent: number; mount: string };
   gpu: GpuInfo | null;
   docker: DockerInfo;
+  systemd: SystemdService[];
   warnings: string[];
 }
 
@@ -126,6 +130,44 @@ function getGpuStats(warnings: string[]): GpuInfo | null {
   }
 }
 
+// System-level services to exclude from the display
+const SYSTEM_SERVICE_NAMES = new Set([
+  'atd', 'cron', 'dbus', 'containerd', 'docker', 'k3s',
+  'multipathd', 'nmbd', 'polkit', 'qemu-guest-agent', 'rsyslog',
+  'smbd', 'snapd', 'ssh', 'unattended-upgrades', 'uuidd', 'nginx',
+  'tailscaled', 'cloudflared',
+]);
+const SYSTEM_SERVICE_PREFIXES = ['systemd-', 'getty@', 'serial-getty@', 'user@'];
+
+function getSystemdServices(warnings: string[]): SystemdService[] {
+  try {
+    const output = execSync(
+      'systemctl list-units --type=service --state=running,failed --no-pager --no-legend 2>/dev/null',
+      { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    return output.trim().split('\n')
+      .filter(l => l.length > 0)
+      .map(line => {
+        const trimmed = line.trim();
+        // Failed units are prefixed with '●' — strip it
+        const cleaned = trimmed.startsWith('●') ? trimmed.slice(1).trim() : trimmed;
+        const parts = cleaned.split(/\s+/);
+        const name = (parts[0] || '').replace(/\.service$/, '');
+        const status = parts[3] || 'running';
+        return { name, status };
+      })
+      .filter(s => {
+        if (!s.name) return false;
+        if (SYSTEM_SERVICE_NAMES.has(s.name)) return false;
+        if (SYSTEM_SERVICE_PREFIXES.some(p => s.name.startsWith(p))) return false;
+        return true;
+      });
+  } catch {
+    warnings.push('Systemd stats unavailable');
+    return [];
+  }
+}
+
 function getDockerStats(warnings: string[]): DockerInfo {
   if (hasDocker === null) hasDocker = commandExists('docker');
   if (!hasDocker) return { running: 0, containers: [], available: false };
@@ -219,7 +261,7 @@ function getK8sPods(warnings: string[]): DockerContainer[] {
   }
 }
 
-function collectStats(): SysStats {
+export function collectStats(): SysStats {
   const warnings: string[] = [];
   const docker = getDockerStats(warnings);
   const k8sPods = getK8sPods(warnings);
@@ -228,28 +270,14 @@ function collectStats(): SysStats {
     docker.running = docker.containers.length;
     docker.available = true;
   }
+  const systemd = getSystemdServices(warnings);
   return {
     cpu: { percent: getCpuPercent(warnings), cores: os.cpus().length },
     mem: getMemStats(),
     disk: getDiskStats(warnings),
     gpu: getGpuStats(warnings),
     docker,
+    systemd,
     warnings,
   };
-}
-
-export function useSysStats() {
-  const [stats, setStats] = useState<SysStats>(collectStats);
-
-  const refresh = useCallback(() => {
-    setStats(collectStats());
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, POLL_STATS);
-    return () => clearInterval(interval);
-  }, [refresh]);
-
-  return stats;
 }

@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
 import { execSync } from 'child_process';
 import { cronToHuman, relativeTime, nextCronRun } from '../utils/cronUtils.js';
-import { POLL_SYSCRON } from '../utils/config.js';
 
 export interface SystemCronJob {
   id: string;
@@ -28,7 +26,7 @@ function extractName(command: string): string {
 
 // Returns { jobs, succeeded } so the caller can distinguish a command
 // failure (preserve previous data) from a genuinely empty crontab.
-function loadSystemCron(): { jobs: SystemCronJob[]; succeeded: boolean } {
+export function loadSystemCron(): { jobs: SystemCronJob[]; succeeded: boolean } {
   let output: string;
   try {
     output = execSync('crontab -l 2>/dev/null', {
@@ -88,29 +86,4 @@ function loadSystemCron(): { jobs: SystemCronJob[]; succeeded: boolean } {
   });
 
   return { jobs, succeeded: true };
-}
-
-export function useSystemCron() {
-  const initial = loadSystemCron();
-  const [jobs, setJobs] = useState<SystemCronJob[]>(() => initial.jobs);
-  const [warning, setWarning] = useState<string | null>(() => initial.succeeded ? null : 'crontab -l failed');
-
-  const refresh = useCallback(() => {
-    const result = loadSystemCron();
-    if (!result.succeeded) {
-      setWarning('crontab -l failed');
-      return;
-    }
-    setWarning(null);
-    setJobs(result.jobs);
-  }, []);
-
-  useEffect(() => {
-    // Crontab rarely changes — poll infrequently to minimise re-renders
-    const interval = setInterval(refresh, POLL_SYSCRON);
-    return () => clearInterval(interval);
-  }, [refresh]);
-
-  const stats: SystemCronStats = { total: jobs.length };
-  return { jobs, stats, warning };
 }

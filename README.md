@@ -175,7 +175,7 @@ Both parse cron expressions into human-readable schedules, calculate relative ne
 
 ## Built With
 
-- [Ink](https://github.com/vadimdemedes/ink) — React for CLI apps
+- Raw ANSI terminal rendering with TypeScript
 - [tmux](https://github.com/tmux/tmux) — Terminal multiplexing for coding agent sessions
 
 ## License

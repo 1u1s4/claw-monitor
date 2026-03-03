@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
 import { execSync } from 'child_process';
 import { cronToHuman, relativeTime, formatDuration } from '../utils/cronUtils.js';
-import { POLL_CRON } from '../utils/config.js';
 
 export interface CronJob {
   id: string;
@@ -47,7 +45,7 @@ function humanSchedule(sched: any): string {
 }
 
 
-function loadCronJobs(): { jobs: CronJob[]; warning: string | null } {
+export function loadCronJobs(): { jobs: CronJob[]; warning: string | null } {
   let output: string;
   try {
     output = execSync('openclaw cron list --json 2>/dev/null', {
@@ -89,30 +87,4 @@ function loadCronJobs(): { jobs: CronJob[]; warning: string | null } {
   } catch {
     return { jobs: [], warning: 'Failed to parse cron job data' };
   }
-}
-
-export function useCronJobs() {
-  const [jobs, setJobs] = useState<CronJob[]>([]);
-  const [warning, setWarning] = useState<string | null>(null);
-
-  const refresh = useCallback(() => {
-    const result = loadCronJobs();
-    setJobs(result.jobs);
-    setWarning(result.warning);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, POLL_CRON);
-    return () => clearInterval(interval);
-  }, [refresh]);
-
-  const stats: CronStats = {
-    total: jobs.length,
-    healthy: jobs.filter(j => j.lastStatus === 'ok').length,
-    erroring: jobs.filter(j => j.consecutiveErrors > 0).length,
-    running: jobs.filter(j => j.isRunning).length,
-  };
-
-  return { jobs, stats, warning };
 }

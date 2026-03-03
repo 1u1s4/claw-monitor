@@ -1,6 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
 import { execSync } from 'child_process';
-import { POLL_CODING } from '../utils/config.js';
 
 export type AgentType = 'CC' | 'GHCP' | 'Codex';
 
@@ -54,7 +52,7 @@ function parsePsLine(line: string): { pid: number; elapsed: string; command: str
   return { pid, elapsed, command };
 }
 
-function detectAgents(): CodingAgent[] {
+export function detectAgents(): CodingAgent[] {
   let output: string;
   try {
     // macOS ps doesn't support --no-headers; use ps aux and skip the header line
@@ -109,33 +107,4 @@ function detectAgents(): CodingAgent[] {
     }
   }
   return Array.from(seen.values());
-}
-
-export function useCodingAgents() {
-  const [agents, setAgents] = useState<CodingAgent[]>([]);
-  const prevKeyRef = useRef('');
-
-  const refresh = useCallback(() => {
-    const next = detectAgents();
-    // Only update state when the agent list actually changed (avoids re-render flicker)
-    const key = next.map(a => `${a.type}:${a.pid}`).join(',');
-    if (key === prevKeyRef.current) return;
-    prevKeyRef.current = key;
-    setAgents(next);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, POLL_CODING);
-    return () => clearInterval(interval);
-  }, [refresh]);
-
-  const stats: CodingAgentStats = {
-    total: agents.length,
-    cc: agents.filter(a => a.type === 'CC').length,
-    ghcp: agents.filter(a => a.type === 'GHCP').length,
-    codex: agents.filter(a => a.type === 'Codex').length,
-  };
-
-  return { agents, stats };
 }
