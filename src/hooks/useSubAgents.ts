@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as fs from 'fs';
 import * as path from 'path';
-import chokidar from 'chokidar';
 import { parseSession, SessionData } from '../utils/parseSession.js';
 import { SESSIONS_DIR, SESSIONS_JSON, MAX_SESSIONS, POLL_AGENTS } from '../utils/config.js';
 
@@ -62,6 +61,7 @@ export function useSubAgents(showAll: boolean = false) {
   const [agents, setAgents] = useState<SessionData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const prevKeyRef = useRef('');
+  const lastMtimeRef = useRef(0);
 
   const loadSessions = useCallback(() => {
     try {
@@ -69,6 +69,20 @@ export function useSubAgents(showAll: boolean = false) {
         setError(`Sessions directory not found: ${SESSIONS_DIR}`);
         return;
       }
+
+      // Skip expensive reads if nothing changed (check dir mtime + sessions.json mtime)
+      let latestMtime = 0;
+      try {
+        latestMtime = Math.max(latestMtime, fs.statSync(SESSIONS_DIR).mtimeMs);
+        if (fs.existsSync(SESSIONS_JSON)) {
+          latestMtime = Math.max(latestMtime, fs.statSync(SESSIONS_JSON).mtimeMs);
+        }
+      } catch { /* ignore stat errors */ }
+
+      if (latestMtime > 0 && latestMtime === lastMtimeRef.current) {
+        return; // nothing changed since last poll
+      }
+      lastMtimeRef.current = latestMtime;
 
       // Load metadata from sessions.json
       const { labels, activeSessionIds, subagentSessionIds } = loadSessionsData();
@@ -132,36 +146,11 @@ export function useSubAgents(showAll: boolean = false) {
     // Initial load
     loadSessions();
 
-    // Set up file watcher
-    let watcher: chokidar.FSWatcher | null = null;
-
-    try {
-      if (fs.existsSync(SESSIONS_DIR)) {
-        watcher = chokidar.watch(SESSIONS_DIR, {
-          persistent: true,
-          ignoreInitial: true,
-          awaitWriteFinish: {
-            stabilityThreshold: 100,
-            pollInterval: 50
-          }
-        });
-
-        watcher.on('add', loadSessions);
-        watcher.on('change', loadSessions);
-        watcher.on('unlink', loadSessions);
-      }
-    } catch {
-      // Watcher failed, fall back to polling
-    }
-
-    // Polling interval for status updates
+    // Poll-only approach — avoids FS watcher events that can trigger openclaw feedback loops
     const interval = setInterval(loadSessions, POLL_AGENTS);
 
     return () => {
       clearInterval(interval);
-      if (watcher) {
-        watcher.close();
-      }
     };
   }, [loadSessions]);
 

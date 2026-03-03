@@ -23,7 +23,7 @@ export const SESSIONS_DIR = envStr(
 export const SESSIONS_JSON = path.join(SESSIONS_DIR, 'sessions.json');
 
 // ── Poll intervals (ms) ───────────────────────────────────────────────────
-export const POLL_AGENTS   = envInt('POLL_AGENTS',   500);
+export const POLL_AGENTS   = envInt('POLL_AGENTS',   2000);
 export const POLL_CODING   = envInt('POLL_CODING',   5000);
 export const POLL_STATS    = envInt('POLL_STATS',    10000);
 export const POLL_CRON     = envInt('POLL_CRON',     15000);
