@@ -108,8 +108,10 @@ export function useCronJobs() {
     activeChild.current = child;
 
     let stdout = '';
+    let timedOut = false;
 
     const timeout = setTimeout(() => {
+      timedOut = true;
       killProcessGroup(child);
       activeChild.current = null;
       setWarning('openclaw cron list timed out');
@@ -122,6 +124,9 @@ export function useCronJobs() {
     child.on('close', (code) => {
       clearTimeout(timeout);
       activeChild.current = null;
+
+      // Don't overwrite the timeout warning
+      if (timedOut) return;
 
       if (code !== 0) {
         setWarning('openclaw cron list failed');
@@ -136,7 +141,9 @@ export function useCronJobs() {
     child.on('error', () => {
       clearTimeout(timeout);
       activeChild.current = null;
-      setWarning('openclaw cron list failed');
+      if (!timedOut) {
+        setWarning('openclaw cron list failed');
+      }
     });
   }, []);
 
