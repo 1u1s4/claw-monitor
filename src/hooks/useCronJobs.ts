@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { execSync } from 'child_process';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { spawn, ChildProcess } from 'child_process';
 import { cronToHuman, relativeTime, formatDuration } from '../utils/cronUtils.js';
 import { POLL_CRON } from '../utils/config.js';
 
@@ -46,19 +46,7 @@ function humanSchedule(sched: any): string {
   return '?';
 }
 
-
-function loadCronJobs(): { jobs: CronJob[]; warning: string | null } {
-  let output: string;
-  try {
-    output = execSync('openclaw cron list --json 2>/dev/null', {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    return { jobs: [], warning: 'openclaw cron list failed' };
-  }
-
+function parseCronOutput(output: string): { jobs: CronJob[]; warning: string | null } {
   try {
     const data = JSON.parse(output);
     const jobs: any[] = data.jobs || [];
@@ -91,20 +79,78 @@ function loadCronJobs(): { jobs: CronJob[]; warning: string | null } {
   }
 }
 
+const SPAWN_TIMEOUT = 10_000;
+
+function killProcessGroup(child: ChildProcess) {
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // Process group already exited
+    }
+  }
+}
+
 export function useCronJobs() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [warning, setWarning] = useState<string | null>(null);
+  const activeChild = useRef<ChildProcess | null>(null);
 
   const refresh = useCallback(() => {
-    const result = loadCronJobs();
-    setJobs(result.jobs);
-    setWarning(result.warning);
+    // Mutex: skip if a previous spawn is still running
+    if (activeChild.current) return;
+
+    const child = spawn('openclaw', ['cron', 'list', '--json'], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    activeChild.current = child;
+
+    let stdout = '';
+
+    const timeout = setTimeout(() => {
+      killProcessGroup(child);
+      activeChild.current = null;
+      setWarning('openclaw cron list timed out');
+    }, SPAWN_TIMEOUT);
+
+    child.stdout!.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      activeChild.current = null;
+
+      if (code !== 0) {
+        setWarning('openclaw cron list failed');
+        return;
+      }
+
+      const result = parseCronOutput(stdout);
+      setJobs(result.jobs);
+      setWarning(result.warning);
+    });
+
+    child.on('error', () => {
+      clearTimeout(timeout);
+      activeChild.current = null;
+      setWarning('openclaw cron list failed');
+    });
   }, []);
 
   useEffect(() => {
     refresh();
     const interval = setInterval(refresh, POLL_CRON);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      // Kill any active process group on unmount
+      if (activeChild.current) {
+        killProcessGroup(activeChild.current);
+        activeChild.current = null;
+      }
+    };
   }, [refresh]);
 
   const stats: CronStats = {
